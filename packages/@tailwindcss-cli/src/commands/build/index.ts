@@ -94,22 +94,10 @@ export async function handle(args: Result<ReturnType<typeof options>>) {
 
   // Compile the input
   let result = compile(input, candidates)
+  let previousCompiledCss = ''
   let compiledCss = result.css
 
-  // Optimize the output
-  if (args['--minify'] || args['--optimize']) {
-    compiledCss = optimizeCss(compiledCss, {
-      file: args['--input'] ?? 'input.css',
-      minify: args['--minify'] ?? false,
-    })
-  }
-
-  // Write the output
-  if (args['--output']) {
-    await outputFile(args['--output'], compiledCss)
-  } else {
-    println(compiledCss)
-  }
+  await write(compiledCss, args)
 
   let end = process.hrtime.bigint()
   eprintln(header())
@@ -171,28 +159,19 @@ export async function handle(args: Result<ReturnType<typeof options>>) {
           )
 
           result = compile(input, candidates)
+          previousCompiledCss = compiledCss
           compiledCss = result.css
         }
 
         // Scan changed files only for incremental rebuilds.
         else if (rebuildStrategy === 'incremental') {
+          previousCompiledCss = compiledCss
           compiledCss = result.rebuild(scanFiles(changedFiles, IO.Sequential | Parsing.Sequential))
         }
 
-        // Optimize the output
-        if (args['--minify'] || args['--optimize']) {
-          compiledCss = optimizeCss(compiledCss, {
-            file: args['--input'] ?? 'input.css',
-            minify: args['--minify'] ?? false,
-          })
-        }
-
-        // Write the output
-        if (args['--output']) {
-          await outputFile(args['--output'], compiledCss)
-        } else {
-          println(compiledCss)
-        }
+        await write(compiledCss, args, {
+          optimize: (args['--minify'] || args['--optimize']) && previousCompiledCss !== compiledCss,
+        })
 
         let end = process.hrtime.bigint()
         eprintln(`Done in ${formatDuration(end - start)}`)
@@ -243,4 +222,25 @@ function handleImports(
         result.messages.filter((msg) => msg.type === 'dependency').map((msg) => msg.file),
       ),
     ])
+}
+
+async function write(
+  css: string,
+  args: Result<ReturnType<typeof options>>,
+  { optimize = args['--minify'] || args['--optimize'] } = {},
+) {
+  // Optimize the output
+  if (optimize) {
+    css = optimizeCss(css, {
+      file: args['--input'] ?? 'input.css',
+      minify: args['--minify'] ?? false,
+    })
+  }
+
+  // Write the output
+  if (args['--output']) {
+    await outputFile(args['--output'], css)
+  } else {
+    println(css)
+  }
 }
